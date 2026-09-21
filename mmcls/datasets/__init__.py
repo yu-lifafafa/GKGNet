@@ -8,10 +8,11 @@ from .multi_label import MultiLabelDataset
 from .samplers import DistributedSampler, RepeatAugSampler
 from .BboxOverlaps2D import BboxOverlaps2D
 from .coco import COCO
+from .tobacco import TobaccoMultiLabelDataset
 __all__ = [
     'BaseDataset', 'MultiLabelDataset', 'build_dataloader', 'build_dataset',
     'DistributedSampler', 'ConcatDataset', 'RepeatDataset',
     'ClassBalancedDataset', 'DATASETS', 'PIPELINES', 'SAMPLERS',
     'build_sampler', 'RepeatAugSampler', 'KFoldDataset',
-    'BboxOverlaps2D','COCO',
+    'BboxOverlaps2D', 'COCO', 'TobaccoMultiLabelDataset',
 ]
