@@ -86,7 +86,7 @@ def _safe_ratio(numerator, denominator):
 
 
 def evaluate_scores(y_true, y_score, thresholds):
-    """Compute threshold-free AP and fixed-threshold F1 metrics."""
+    """Compute threshold-free AP and fixed-threshold classification metrics."""
     true, score = validate_probability_inputs(y_true, y_score)
     threshold_values = validate_thresholds(thresholds)
     prediction = (score >= threshold_values.reshape(1, -1)).astype(np.int8)
@@ -99,14 +99,29 @@ def evaluate_scores(y_true, y_score, thresholds):
     precision = _safe_ratio(tp, tp + fp)
     recall = _safe_ratio(tp, tp + fn)
     per_class_f1 = _safe_ratio(2 * tp, 2 * tp + fp + fn)
+    total_tp = int(tp.sum())
+    total_fp = int(fp.sum())
+    total_fn = int(fn.sum())
+    micro_precision = float(_safe_ratio(total_tp, total_tp + total_fp))
+    micro_recall = float(_safe_ratio(total_tp, total_tp + total_fn))
     micro_denominator = 2 * tp.sum() + fp.sum() + fn.sum()
     micro_f1 = (float(2 * tp.sum() / micro_denominator)
                 if micro_denominator else 0.0)
     per_class_ap = per_class_average_precision(true, score)
+    macro_precision = float(precision.mean())
+    macro_recall = float(recall.mean())
+    macro_f1 = float(per_class_f1.mean())
 
     return {
         'mAP': float(per_class_ap.mean()),
-        'Macro-F1': float(per_class_f1.mean()),
+        'micro_precision': micro_precision,
+        'micro_recall': micro_recall,
+        'micro_f1': micro_f1,
+        'macro_precision': macro_precision,
+        'macro_recall': macro_recall,
+        'macro_f1': macro_f1,
+        # Compatibility aliases for the phase-two API.
+        'Macro-F1': macro_f1,
         'Micro-F1': micro_f1,
         'per_class_ap': per_class_ap,
         'per_class_precision': precision,
@@ -115,10 +130,31 @@ def evaluate_scores(y_true, y_score, thresholds):
         'tp': tp,
         'fp': fp,
         'fn': fn,
+        'support': positives,
         'positives': positives,
         'thresholds': threshold_values,
         'y_pred': prediction,
     }
+
+
+def test_per_class_rows(result, class_names):
+    """Return the frozen ``test_per_class.csv`` row schema."""
+    names = tuple(class_names)
+    if len(names) != NUM_CLASSES:
+        raise ValueError('class_names must contain exactly 18 ordered names.')
+    return [{
+        'class_id': index,
+        'class_name': name,
+        'support': int(result['support'][index]),
+        'AP': float(result['per_class_ap'][index]),
+        'threshold': float(result['thresholds'][index]),
+        'precision': float(result['per_class_precision'][index]),
+        'recall': float(result['per_class_recall'][index]),
+        'F1': float(result['per_class_f1'][index]),
+        'TP': int(result['tp'][index]),
+        'FP': int(result['fp'][index]),
+        'FN': int(result['fn'][index]),
+    } for index, name in enumerate(names)]
 
 
 def per_class_rows(result, class_names):

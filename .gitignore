@@ -1,0 +1,6 @@
+checkpoint/pvig_s_82.1.pth.tar
+work_dirs/
+test_tmp*/
+__pycache__/
+*.py[cod]
+

@@ -1,7 +1,5 @@
-import csv
 import importlib.util
 import inspect
-import json
 from pathlib import Path
 
 import numpy as np
@@ -9,10 +7,12 @@ import pytest
 
 from tools.calibrate_tobacco import (build_calibration_artifact,
                                      calibrate_thresholds)
-from tools.evaluate_tobacco import (evaluate_and_write,
-                                    validate_threshold_artifact)
+from tools.evaluate_tobacco import validate_threshold_artifact
+from tools.tobacco_artifacts import (build_best_checkpoint_info,
+                                     build_prediction_metadata)
 from tools.tobacco_metrics import (NUM_CLASSES, TASK_PROTOCOL,
-                                   evaluate_scores, per_class_rows)
+                                   checkpoint_identity, evaluate_scores,
+                                   per_class_rows)
 
 
 CLASS_NAMES = (
@@ -53,11 +53,19 @@ def _artifact(tmp_path):
     checkpoint = tmp_path / 'best.pth'
     checkpoint.write_bytes(b'checkpoint identity fixture')
     y_true, y_score = _perfect_data()
-    artifact = build_calibration_artifact(
-        y_true,
-        y_score,
+    best = build_best_checkpoint_info(
+        checkpoint_path=checkpoint,
+        epoch=1,
+        validation_map=1.0,
+        class_names=CLASS_NAMES)
+    metadata = build_prediction_metadata(
+        split='val',
+        num_samples=len(y_true),
         class_names=CLASS_NAMES,
-        checkpoint_path=checkpoint)
+        checkpoint=best['checkpoint'],
+        checkpoint_type='ordinary')
+    artifact = build_calibration_artifact(
+        y_true, y_score, CLASS_NAMES, best, metadata)
     return artifact, checkpoint
 
 
@@ -225,35 +233,14 @@ def test_calibration_rejects_class_without_validation_positive():
         calibrate_thresholds(y_true, y_score)
 
 
-def test_calibration_artifact_and_test_outputs_have_fixed_schema(tmp_path):
+def test_calibration_artifact_has_fixed_schema(tmp_path):
     artifact, checkpoint = _artifact(tmp_path)
-    artifact_path = tmp_path / 'thresholds.json'
-    artifact_path.write_text(json.dumps(artifact), encoding='utf-8')
-    y_true, y_score = _perfect_data()
-    output_dir = tmp_path / 'evaluation'
-    result = evaluate_and_write(
-        y_true=y_true,
-        y_score=y_score,
-        artifact_path=artifact_path,
-        checkpoint_path=checkpoint,
-        output_dir=output_dir,
-        class_names=CLASS_NAMES)
-
-    metrics = json.loads((output_dir / 'metrics.json').read_text())
-    assert metrics['task_protocol'] == TASK_PROTOCOL
-    assert metrics['mAP'] == pytest.approx(1.0)
-    assert metrics['Macro-F1'] == pytest.approx(1.0)
-    assert metrics['Micro-F1'] == pytest.approx(1.0)
-    assert metrics['num_samples'] == 2
-    assert metrics['num_classes'] == 18
-    assert result['metrics'] == metrics
-
-    with (output_dir / 'per_class_metrics.csv').open(
-            encoding='utf-8-sig', newline='') as file:
-        rows = list(csv.DictReader(file))
-    assert len(rows) == 18
-    assert list(rows[0]) == [
-        'model_index', 'class_name', 'AP', 'threshold', 'precision',
-        'recall', 'F1', 'TP', 'FP', 'FN', 'positives'
-    ]
-    assert [row['class_name'] for row in rows] == list(CLASS_NAMES)
+    assert artifact['task_protocol'] == TASK_PROTOCOL
+    assert artifact['calibration']['validation_mAP'] == pytest.approx(1.0)
+    assert artifact['calibration']['validation_macro_f1'] == pytest.approx(1.0)
+    assert artifact['calibration']['validation_micro_f1'] == pytest.approx(1.0)
+    assert artifact['calibration']['num_samples'] == 2
+    assert artifact['num_classes'] == 18
+    assert len(artifact['per_class_validation']) == 18
+    assert artifact['checkpoint']['sha256'] == checkpoint_identity(
+        checkpoint)['sha256']

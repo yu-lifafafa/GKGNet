@@ -89,9 +89,9 @@ def main():
     data = scatter(data, [0])[0]
     image = data['img']
     gt_label = data['gt_label']
-    if tuple(image.shape) != (1, 3, 576, 576):
+    if tuple(image.shape) != (1, 3, 448, 448):
         raise RuntimeError(
-            f'Expected image shape (1, 3, 576, 576), got {tuple(image.shape)}.')
+            f'Expected image shape (1, 3, 448, 448), got {tuple(image.shape)}.')
     if tuple(gt_label.shape) != (1, 18):
         raise RuntimeError(
             f'Expected gt_label shape (1, 18), got {tuple(gt_label.shape)}.')

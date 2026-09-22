@@ -1,9 +1,12 @@
+import copy
 import runpy
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CONFIG_PATH = REPO_ROOT / 'configs' / 'gkgnet' / 'gkgnet_tobacco_576.py'
+CONFIG_PATH = REPO_ROOT / 'configs' / 'gkgnet' / 'gkgnet_tobacco_448.py'
+REFERENCE_CONFIG_PATH = (
+    REPO_ROOT / 'configs' / 'gkgnet' / 'gkgnet_tobacco_576.py')
 COCO_CONFIG_PATH = REPO_ROOT / 'configs' / 'gkgnet' / 'gkgnet_coco_576.py'
 
 
@@ -11,11 +14,15 @@ def _load_config():
     return runpy.run_path(str(CONFIG_PATH))
 
 
+def test_tobacco_448_config_exists():
+    assert CONFIG_PATH.is_file()
+
+
 def test_tobacco_config_model_contract():
     cfg = _load_config()
     assert cfg['model']['backbone']['n_classes'] == 18
     assert cfg['model']['head']['num_classes'] == 18
-    assert cfg['model']['backbone']['size'] == 576
+    assert cfg['model']['backbone']['size'] == 448
     assert cfg['model']['backbone']['choice'] == 's'
     assert cfg['model']['backbone']['k'] == 9
     assert cfg['model']['backbone']['k_label_gcn'] == 9
@@ -40,17 +47,20 @@ def test_tobacco_config_dataset_contract():
 
 def test_tobacco_config_resolution_and_pipeline_contract():
     cfg = _load_config()
-    assert cfg['crop_size'] == 576
+    assert cfg['crop_size'] == 448
     crop_mixup = next(
         transform for transform in cfg['train_pipeline']
         if transform['type'] == 'CropMixup')
     test_resize = next(
         transform for transform in cfg['test_pipeline']
         if transform['type'] == 'Resize')
-    assert crop_mixup['size'] == 576
-    assert test_resize['size'] == 576
+    assert crop_mixup['size'] == 448
+    assert test_resize['size'] == 448
     assert cfg['data']['val']['pipeline'] is cfg['test_pipeline']
     assert cfg['data']['test']['pipeline'] is cfg['test_pipeline']
+    assert [item['type'] for item in cfg['test_pipeline']] == [
+        'LoadImageFromFile', 'Resize', 'Normalize', 'ImageToTensor', 'Collect'
+    ]
 
 
 def test_tobacco_config_keeps_official_training_recipe():
@@ -70,26 +80,38 @@ def test_tobacco_config_keeps_official_training_recipe():
 
 def test_tobacco_config_does_not_drift_from_official_recipe():
     cfg = _load_config()
-    coco = runpy.run_path(str(COCO_CONFIG_PATH))
+    reference = runpy.run_path(str(REFERENCE_CONFIG_PATH))
 
     for key in (
-            'img_norm_cfg', 'scale_size', 'crop_size', 'train_pipeline',
-            'test_pipeline', 'sampler', 'runner', 'paramwise_cfg', 'optimizer',
-            'optimizer_config', 'lr_config', 'log_config', 'dist_params',
-            'log_level', 'workflow', 'fp16'):
-        assert cfg[key] == coco[key]
+            'img_norm_cfg', 'scale_size', 'sampler', 'runner',
+            'paramwise_cfg', 'optimizer', 'optimizer_config', 'lr_config',
+            'log_config', 'dist_params', 'log_level', 'workflow', 'fp16',
+            'evaluation'):
+        assert cfg[key] == reference[key]
 
-    tobacco_backbone = dict(cfg['model']['backbone'])
-    coco_backbone = dict(coco['model']['backbone'])
-    assert tobacco_backbone.pop('n_classes') == 18
-    assert coco_backbone.pop('n_classes') == 80
-    assert tobacco_backbone == coco_backbone
+    model_448 = copy.deepcopy(cfg['model'])
+    model_576 = copy.deepcopy(reference['model'])
+    assert model_448['backbone'].pop('size') == 448
+    assert model_576['backbone'].pop('size') == 576
+    assert model_448 == model_576
 
-    tobacco_head = dict(cfg['model']['head'])
-    coco_head = dict(coco['model']['head'])
-    assert tobacco_head.pop('num_classes') == 18
-    assert coco_head.pop('num_classes') == 80
-    assert tobacco_head == coco_head
+    train_448 = copy.deepcopy(cfg['train_pipeline'])
+    train_576 = copy.deepcopy(reference['train_pipeline'])
+    crop_mixup_448 = next(
+        item for item in train_448 if item['type'] == 'CropMixup')
+    crop_mixup_576 = next(
+        item for item in train_576 if item['type'] == 'CropMixup')
+    assert crop_mixup_448.pop('size') == 448
+    assert crop_mixup_576.pop('size') == 576
+    assert train_448 == train_576
+
+    test_448 = copy.deepcopy(cfg['test_pipeline'])
+    test_576 = copy.deepcopy(reference['test_pipeline'])
+    resize_448 = next(item for item in test_448 if item['type'] == 'Resize')
+    resize_576 = next(item for item in test_576 if item['type'] == 'Resize')
+    assert resize_448.pop('size') == 448
+    assert resize_576.pop('size') == 576
+    assert test_448 == test_576
 
 
 def test_tobacco_paths_are_centralized():
@@ -115,3 +137,32 @@ def test_checkpoint_selection_remains_validation_map_only():
     cfg = _load_config()
     assert cfg['evaluation'] == dict(
         interval=1, metric='mAP', save_best='mAP')
+
+
+def test_tobacco_448_work_dir_and_static_stage_geometry():
+    cfg = _load_config()
+    assert cfg['work_dir'] == './work_dirs/gkgnet_tobacco_448'
+    input_size = cfg['model']['backbone']['size']
+    stage_spatial = [input_size // divisor for divisor in (4, 8, 16, 32)]
+    assert stage_spatial == [112, 56, 28, 14]
+    assert [side * side for side in stage_spatial] == [12544, 3136, 784, 196]
+    assert [(channels, side, side) for channels, side in zip(
+        (80, 160, 400, 640), stage_spatial)] == [
+            (80, 112, 112),
+            (160, 56, 56),
+            (400, 28, 28),
+            (640, 14, 14),
+        ]
+
+
+def test_tobacco_576_reference_config_is_preserved():
+    cfg = runpy.run_path(str(REFERENCE_CONFIG_PATH))
+    assert cfg['model']['backbone']['size'] == 576
+    assert cfg['crop_size'] == 576
+    assert cfg['work_dir'] == './work_dirs/gkgnet_tobacco_576'
+    crop_mixup = next(
+        item for item in cfg['train_pipeline'] if item['type'] == 'CropMixup')
+    resize = next(
+        item for item in cfg['test_pipeline'] if item['type'] == 'Resize')
+    assert crop_mixup['size'] == 576
+    assert resize['size'] == 576
