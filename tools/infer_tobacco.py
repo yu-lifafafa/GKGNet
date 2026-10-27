@@ -46,6 +46,31 @@ def validate_probability_batch(probabilities):
     return score
 
 
+def resolve_inference_batch_size(cfg, cli_batch_size=None):
+    """Use the formal config batch size unless the CLI overrides it."""
+    if cli_batch_size is None:
+        data_cfg = cfg.data
+        if hasattr(data_cfg, 'get'):
+            batch_size = data_cfg.get('samples_per_gpu', None)
+        else:
+            batch_size = getattr(data_cfg, 'samples_per_gpu', None)
+        if batch_size is None:
+            raise ValueError('cfg.data.samples_per_gpu must be configured.')
+    else:
+        batch_size = cli_batch_size
+    if not isinstance(batch_size, int) or isinstance(batch_size, bool) or batch_size <= 0:
+        raise ValueError('Inference batch size must be a positive integer.')
+    return batch_size
+
+
+def maybe_wrap_fp16_model(model, fp16_cfg, wrap_fp16_model):
+    """Match tools/test.py FP16 wrapping before checkpoint restoration."""
+    if fp16_cfg is None:
+        return False
+    wrap_fp16_model(model)
+    return True
+
+
 def _extract_trained_state_dict(checkpoint, checkpoint_type):
     if checkpoint_type not in CHECKPOINT_TYPES:
         raise ValueError(f'checkpoint_type must be one of {CHECKPOINT_TYPES}.')
@@ -102,7 +127,9 @@ def parse_args(args=None):
     parser.add_argument(
         '--checkpoint-type', choices=CHECKPOINT_TYPES, default='ordinary')
     parser.add_argument('--device', default='cuda:0')
-    parser.add_argument('--batch-size', type=int, default=1)
+    parser.add_argument(
+        '--batch-size', type=int, default=None,
+        help='Override cfg.data.samples_per_gpu (default: use config value).')
     parser.add_argument('--workers', type=int, default=1)
     return parser.parse_args(args)
 
@@ -112,14 +139,20 @@ def main():
     validate_inference_request(args.config, args.split, args.thresholds)
     if not args.device.startswith('cuda') or not torch.cuda.is_available():
         raise RuntimeError('Formal GKGNet inference requires CUDA.')
-    if args.batch_size <= 0 or args.workers < 0:
-        raise ValueError('batch-size must be positive and workers non-negative.')
+    if args.batch_size is not None and args.batch_size <= 0:
+        raise ValueError('batch-size must be positive.')
+    if args.workers < 0:
+        raise ValueError('workers must be non-negative.')
 
     from mmcv import Config
     from mmcv.parallel import scatter
     from mmcls.datasets import build_dataloader, build_dataset
     from mmcls.datasets.tobacco import CLASSES
     from mmcls.models import build_classifier
+    try:
+        from mmcv.runner import wrap_fp16_model
+    except ImportError:
+        from mmcls.core import wrap_fp16_model
 
     cfg = Config.fromfile(args.config)
     if cfg.model.backbone.size != 448:
@@ -130,9 +163,10 @@ def main():
     dataset_cfg.split = args.split
     dataset_cfg.test_mode = True
     dataset = build_dataset(dataset_cfg)
+    batch_size = resolve_inference_batch_size(cfg, args.batch_size)
     loader = build_dataloader(
         dataset,
-        samples_per_gpu=args.batch_size,
+        samples_per_gpu=batch_size,
         workers_per_gpu=args.workers,
         num_gpus=1,
         dist=False,
@@ -144,6 +178,7 @@ def main():
     model_cfg = copy.deepcopy(cfg.model)
     model_cfg.backbone.init_cfg = None
     model = build_classifier(model_cfg)
+    maybe_wrap_fp16_model(model, cfg.get('fp16', None), wrap_fp16_model)
     restored = strict_restore_trained_checkpoint(
         model, args.checkpoint, checkpoint_type=args.checkpoint_type)
     device = torch.device(args.device)

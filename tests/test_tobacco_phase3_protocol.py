@@ -2,6 +2,7 @@ import csv
 import inspect
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -18,6 +19,8 @@ from tools.calibrate_tobacco import (
 from tools.create_best_checkpoint_info import build_best_checkpoint_info
 from tools.evaluate_tobacco import evaluate_prediction_artifacts
 from tools.infer_tobacco import (
+    maybe_wrap_fp16_model,
+    resolve_inference_batch_size,
     strict_restore_trained_checkpoint,
     validate_inference_request,
     validate_probability_batch,
@@ -177,6 +180,35 @@ def test_inference_consumes_head_probabilities_without_second_sigmoid():
     assert 'torch.sigmoid(cls_score)' in head_source
     with pytest.raises(ValueError, match=r'\[0, 1\]'):
         validate_probability_batch(np.full((1, NUM_CLASSES), 2.0))
+
+
+def test_inference_batch_size_defaults_to_config_and_allows_cli_override():
+    cfg = SimpleNamespace(data=SimpleNamespace(samples_per_gpu=16))
+    assert resolve_inference_batch_size(cfg, None) == 16
+    assert resolve_inference_batch_size(cfg, 4) == 4
+    with pytest.raises(ValueError, match='positive'):
+        resolve_inference_batch_size(cfg, 0)
+
+
+def test_inference_fp16_wrap_matches_official_test_path():
+    model = object()
+    wrapped = []
+
+    def wrap_fp16_model(candidate):
+        wrapped.append(candidate)
+
+    assert maybe_wrap_fp16_model(
+        model, {'loss_scale': 'dynamic'}, wrap_fp16_model) is True
+    assert wrapped == [model]
+
+
+def test_inference_without_fp16_config_does_not_wrap_model():
+    model = object()
+
+    def unexpected_wrap(_model):
+        raise AssertionError('wrap_fp16_model must not be called')
+
+    assert maybe_wrap_fp16_model(model, None, unexpected_wrap) is False
 
 
 def test_full_trained_checkpoint_restore_is_strict(tmp_path):
