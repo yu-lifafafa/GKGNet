@@ -92,9 +92,9 @@ def main():
     if tuple(image.shape) != (1, 3, 448, 448):
         raise RuntimeError(
             f'Expected image shape (1, 3, 448, 448), got {tuple(image.shape)}.')
-    if tuple(gt_label.shape) != (1, 18):
+    if tuple(gt_label.shape) != (1, 16):
         raise RuntimeError(
-            f'Expected gt_label shape (1, 18), got {tuple(gt_label.shape)}.')
+            f'Expected gt_label shape (1, 16), got {tuple(gt_label.shape)}.')
 
     captured = {}
     hooks = [
@@ -112,9 +112,9 @@ def main():
             hook.remove()
 
     logits = captured['fc1'].diagonal(dim1=1, dim2=2) + captured['fc2']
-    if tuple(logits.shape) != (1, 18):
+    if tuple(logits.shape) != (1, 16):
         raise RuntimeError(
-            f'Expected logits shape (1, 18), got {tuple(logits.shape)}.')
+            f'Expected logits shape (1, 16), got {tuple(logits.shape)}.')
     loss_tensors = []
     for name, value in losses.items():
         values = value if isinstance(value, (list, tuple)) else [value]

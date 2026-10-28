@@ -30,7 +30,10 @@ def main():
     expected_config = (repo_root / FORMAL_CONFIG).resolve()
     if Path(args.config).resolve() != expected_config:
         raise ValueError(f'Formal config must be {FORMAL_CONFIG}.')
-    from mmcls.datasets.tobacco import CLASSES
+    try:
+        from tools.tobacco_protocol import CLASSES
+    except ModuleNotFoundError:
+        from tobacco_protocol import CLASSES
 
     artifact = build_best_checkpoint_info(
         checkpoint_path=args.checkpoint,

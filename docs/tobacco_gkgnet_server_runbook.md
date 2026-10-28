@@ -1,14 +1,14 @@
-# Tobacco-18 GKGNet-S @ 448×448 server runbook
+# Tobacco-Clean16 GKGNet-S @ 448×448 server runbook
 
 This runbook freezes the formal identity as `GKGNet-S @ 448×448`,
-`Tobacco-18 multi-label`. Run every command from the GKGNet repository root.
+`Tobacco-Clean16 multi-label`. Run every command from the GKGNet repository root.
 Test data must not be accessed until validation checkpoint selection and
 threshold calibration are complete.
 
 Placeholders used below:
 
 - `<DATA_ROOT>`: tobacco data root containing `train/`, `val/`, and `test/`.
-- `<MANIFEST>`: `image_manifest_updated.csv`.
+- `<MANIFEST>`: `tobacco_clean_16cls_721.csv`.
 - `<OUTPUT_DIR>`: one isolated formal experiment directory.
 - `<BEST_CHECKPOINT>`: validation-mAP-selected full Tobacco checkpoint.
 - `<BEST_EPOCH>` and `<BEST_VAL_MAP>`: values read from the real training log.
@@ -47,15 +47,23 @@ python tools/smoke_tobacco_gkgnet.py \
   --manifest <MANIFEST>
 ```
 
-Required shapes are image `[1, 3, 448, 448]`, target `[1, 18]`, and logits
-`[1, 18]`. Stop on any CUDA, dependency, checkpoint, finite-value, or gradient
+Required shapes are image `[1, 3, 448, 448]`, target `[1, 16]`, and logits
+`[1, 16]`. Stop on any CUDA, dependency, checkpoint, finite-value, or gradient
 failure; do not modify the model during smoke diagnosis.
 
 ## 4. formal training
 
 ```bash
 python tools/train.py configs/gkgnet/gkgnet_tobacco_448.py \
+  --seed 42 \
   --work-dir <OUTPUT_DIR> \
+  --cfg-options \
+    data.train.dataset.data_prefix=<DATA_ROOT> \
+    data.train.dataset.ann_file=<MANIFEST> \
+    data.val.data_prefix=<DATA_ROOT> \
+    data.val.ann_file=<MANIFEST> \
+    data.test.data_prefix=<DATA_ROOT> \
+    data.test.ann_file=<MANIFEST> \
   2>&1 | tee <OUTPUT_DIR>/train.log
 ```
 
@@ -169,3 +177,24 @@ Keep all of the following together:
 The SHA-256 checkpoint identity must agree across every JSON artifact. Any
 identity, task protocol, class order, input size, or sample-count mismatch is a
 hard failure.
+
+## Clean16 deployment contract
+
+Protocol: `tobacco_clean16_v1`. The only ordered class and label definitions
+are in `tools/tobacco_protocol.py`. Old 18/19 class CSVs, model weights and
+threshold artifacts are rejected. Healthy targets are 16 zeros.
+
+Confirm the real server `<DATA_ROOT>`, `<MANIFEST>`, ImageNet pretrained
+checkpoint, and a new `<OUTPUT_DIR>` before training. Config defaults are local
+placeholders, not assertions about server paths. CLI config overrides must set
+the concrete dataset entries shown above; changing only a top-level variable
+with MMCV `--cfg-options` does not recompute its earlier references.
+`file_name` already starts with `images/`: join only
+`<DATA_ROOT>/<split>/<file_name>`. Never append another images/ or task_folder.
+Use a new output directory and keep all historical experiments intact.
+
+Audited manifest SHA256:
+`60fee2bccbca44ed6447ec11ea6c4a8ed97434703d95aa0d905ff8f75d74db42`.
+Rows: train 7805, val 2230, test 1115; 231 healthy images in total.
+Each split has positives for all 16 classes. No image availability is inferred
+from this CSV audit.

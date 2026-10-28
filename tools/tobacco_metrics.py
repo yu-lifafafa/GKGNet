@@ -1,4 +1,4 @@
-"""Pure NumPy metrics for the fixed Tobacco 18-class protocol."""
+"""Pure NumPy metrics for the fixed Tobacco 16-class protocol."""
 
 import hashlib
 from pathlib import Path
@@ -6,8 +6,10 @@ from pathlib import Path
 import numpy as np
 
 
-NUM_CLASSES = 18
-TASK_PROTOCOL = 'tobacco_18cls_exclude_source13'
+try:
+    from tools.tobacco_protocol import CLASSES, NUM_CLASSES, TASK_PROTOCOL
+except ModuleNotFoundError:  # Direct execution from tools/.
+    from tobacco_protocol import CLASSES, NUM_CLASSES, TASK_PROTOCOL
 
 
 def validate_probability_inputs(y_true, y_score):
@@ -15,7 +17,7 @@ def validate_probability_inputs(y_true, y_score):
     true = np.asarray(y_true)
     score = np.asarray(y_score, dtype=np.float64)
     if true.ndim != 2 or score.ndim != 2:
-        raise ValueError('y_true and y_score must both have shape [N, 18].')
+        raise ValueError('y_true and y_score must both have shape [N, 16].')
     if true.shape != score.shape:
         raise ValueError(
             f'y_true and y_score must have the same shape, got '
@@ -24,7 +26,7 @@ def validate_probability_inputs(y_true, y_score):
         raise ValueError('y_true and y_score must contain at least one sample.')
     if true.shape[1] != NUM_CLASSES:
         raise ValueError(
-            f'Expected exactly 18 classes, got shape {true.shape}.')
+            f'Expected exactly 16 classes, got shape {true.shape}.')
     if not np.isin(true, (0, 1)).all():
         raise ValueError('y_true must contain binary values {0, 1}.')
     if not np.isfinite(score).all():
@@ -39,7 +41,7 @@ def validate_thresholds(thresholds):
     values = np.asarray(thresholds, dtype=np.float64)
     if values.shape != (NUM_CLASSES, ):
         raise ValueError(
-            f'thresholds must have shape (18,), got {values.shape}.')
+            f'thresholds must have shape (16,), got {values.shape}.')
     if not np.isfinite(values).all():
         raise ValueError('thresholds must all be finite.')
     if np.any(values < 0) or np.any(values > 1):
@@ -141,7 +143,7 @@ def test_per_class_rows(result, class_names):
     """Return the frozen ``test_per_class.csv`` row schema."""
     names = tuple(class_names)
     if len(names) != NUM_CLASSES:
-        raise ValueError('class_names must contain exactly 18 ordered names.')
+        raise ValueError('class_names must contain exactly 16 ordered names.')
     return [{
         'class_id': index,
         'class_name': name,
@@ -161,7 +163,7 @@ def per_class_rows(result, class_names):
     """Convert an evaluation result to ordered, serializable class rows."""
     names = tuple(class_names)
     if len(names) != NUM_CLASSES:
-        raise ValueError('class_names must contain exactly 18 ordered names.')
+        raise ValueError('class_names must contain exactly 16 ordered names.')
     rows = []
     for index, name in enumerate(names):
         rows.append({

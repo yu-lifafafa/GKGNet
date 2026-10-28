@@ -158,8 +158,8 @@ def _write_manifest(path, source_columns, rows, fieldnames=None):
 
 
 def _build_dataset(stack, tmp_path, rows, split='train', source_columns=None):
-    source_columns = source_columns or stack.tobacco.SOURCE_LABEL_COLUMNS
-    manifest = tmp_path / 'image_manifest_updated.csv'
+    source_columns = source_columns or stack.tobacco.MODEL_LABEL_COLUMNS
+    manifest = tmp_path / 'tobacco_clean_16cls_721.csv'
     _write_manifest(manifest, source_columns, rows)
     return stack.tobacco.TobaccoMultiLabelDataset(
         data_prefix=str(tmp_path / 'images'),
@@ -170,55 +170,38 @@ def _build_dataset(stack, tmp_path, rows, split='train', source_columns=None):
 
 def test_fixed_label_protocol(tobacco_stack):
     tobacco = tobacco_stack.tobacco
-    assert len(tobacco.SOURCE_LABEL_COLUMNS) == 19
-    assert len(tobacco.MODEL_LABEL_COLUMNS) == 18
-    assert len(tobacco.CLASSES) == 18
-    assert tobacco.EXCLUDED_SOURCE_LABEL in tobacco.SOURCE_LABEL_COLUMNS
-    assert tobacco.EXCLUDED_SOURCE_LABEL not in tobacco.MODEL_LABEL_COLUMNS
-    assert tobacco.MODEL_LABEL_COLUMNS == (
-        tobacco.SOURCE_LABEL_COLUMNS[:13]
-        + tobacco.SOURCE_LABEL_COLUMNS[14:])
+    assert len(tobacco.MODEL_LABEL_COLUMNS) == 16
+    assert len(tobacco.CLASSES) == 16
+    codes = [2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 16, 17, 18, 19, 20]
+    assert tobacco.MODEL_LABEL_COLUMNS == [
+        f'y{i:02d}_c{c:02d}_{name}'
+        for i, (c, name) in enumerate(zip(codes, tobacco.CLASSES))]
 
 
 def test_single_and_multiple_retained_labels(tobacco_stack, tmp_path):
-    source = tobacco_stack.tobacco.SOURCE_LABEL_COLUMNS
+    source = tobacco_stack.tobacco.MODEL_LABEL_COLUMNS
     rows = [
         _row(source, 'single.jpg', 'train', positives=(2,), metadata='ok'),
         _row(source, 'multi.jpg', 'train', positives=(1, 8), metadata='ok'),
     ]
     dataset = _build_dataset(tobacco_stack, tmp_path, rows)
-    assert dataset.data_infos[0]['gt_label'].tolist() == [0, 0, 1] + [0] * 15
+    assert dataset.data_infos[0]['gt_label'].tolist() == [0, 0, 1] + [0] * 13
     assert np.flatnonzero(dataset.data_infos[1]['gt_label']).tolist() == [1, 8]
     assert dataset.data_infos[1]['gt_label'].dtype == np.int8
-    assert dataset.data_infos[1]['gt_label'].shape == (18,)
+    assert dataset.data_infos[1]['gt_label'].shape == (16,)
 
 
-def test_root_knot_is_removed_without_removing_image(tobacco_stack, tmp_path):
-    source = tobacco_stack.tobacco.SOURCE_LABEL_COLUMNS
-    rows = [
-        _row(source, 'mixed.jpg', 'train', positives=(4, 13)),
-        _row(source, 'root_only.jpg', 'train', positives=(13,)),
-    ]
+def test_all_indices_and_healthy(tobacco_stack, tmp_path):
+    source = tobacco_stack.tobacco.MODEL_LABEL_COLUMNS
+    rows = [_row(source, f'{i}.jpg', 'train', positives=(i,))
+            for i in range(16)] + [_row(source, 'healthy.jpg', 'train')]
     dataset = _build_dataset(tobacco_stack, tmp_path, rows)
-    assert len(dataset) == 2
-    assert np.flatnonzero(dataset.data_infos[0]['gt_label']).tolist() == [4]
-    assert dataset.data_infos[1]['gt_label'].tolist() == [0] * 18
-
-
-def test_post_exclusion_indices_do_not_shift_incorrectly(
-        tobacco_stack, tmp_path):
-    source = tobacco_stack.tobacco.SOURCE_LABEL_COLUMNS
-    rows = [
-        _row(source, 'source14.jpg', 'train', positives=(14,)),
-        _row(source, 'source18.jpg', 'train', positives=(18,)),
-    ]
-    dataset = _build_dataset(tobacco_stack, tmp_path, rows)
-    assert np.flatnonzero(dataset.data_infos[0]['gt_label']).tolist() == [13]
-    assert np.flatnonzero(dataset.data_infos[1]['gt_label']).tolist() == [17]
+    np.testing.assert_array_equal(dataset.get_gt_labels()[:16], np.eye(16))
+    assert dataset.get_cat_ids(16) == []
 
 
 def test_missing_source_column_fails_fast(tobacco_stack, tmp_path):
-    source = tobacco_stack.tobacco.SOURCE_LABEL_COLUMNS
+    source = tobacco_stack.tobacco.MODEL_LABEL_COLUMNS
     missing = source[7]
     columns = [column for column in source if column != missing]
     manifest = tmp_path / 'manifest.csv'
@@ -240,7 +223,7 @@ def test_missing_source_column_fails_fast(tobacco_stack, tmp_path):
 @pytest.mark.parametrize('invalid_value', ['', '2', '-1', 'yes', 'nan'])
 def test_invalid_label_value_fails_fast(
         tobacco_stack, tmp_path, invalid_value):
-    source = tobacco_stack.tobacco.SOURCE_LABEL_COLUMNS
+    source = tobacco_stack.tobacco.MODEL_LABEL_COLUMNS
     row = _row(source, 'bad.jpg', 'train')
     row[source[5]] = invalid_value
     manifest = tmp_path / 'manifest.csv'
@@ -255,7 +238,7 @@ def test_invalid_label_value_fails_fast(
 
 
 def test_split_filtering_and_empty_split_error(tobacco_stack, tmp_path):
-    source = tobacco_stack.tobacco.SOURCE_LABEL_COLUMNS
+    source = tobacco_stack.tobacco.MODEL_LABEL_COLUMNS
     rows = [
         _row(source, 'train.jpg', 'train'),
         _row(source, 'val.jpg', 'val'),
@@ -285,7 +268,7 @@ def test_split_filtering_and_empty_split_error(tobacco_stack, tmp_path):
 
 def test_image_path_is_data_root_plus_split_plus_file_name(
         tobacco_stack, tmp_path):
-    source = tobacco_stack.tobacco.SOURCE_LABEL_COLUMNS
+    source = tobacco_stack.tobacco.MODEL_LABEL_COLUMNS
     image_root = tmp_path / 'images'
     image_path = image_root / 'train' / 'nested' / 'sample.jpg'
     image_path.parent.mkdir(parents=True)
@@ -303,22 +286,22 @@ def test_image_path_is_data_root_plus_split_plus_file_name(
 
 def test_get_cat_ids_for_multilabel_and_zero_label_samples(
         tobacco_stack, tmp_path):
-    source = tobacco_stack.tobacco.SOURCE_LABEL_COLUMNS
+    source = tobacco_stack.tobacco.MODEL_LABEL_COLUMNS
     rows = [
-        _row(source, 'multi.jpg', 'train', positives=(0, 14, 18)),
-        _row(source, 'zero.jpg', 'train', positives=(13,)),
+        _row(source, 'multi.jpg', 'train', positives=(0, 13, 15)),
+        _row(source, 'zero.jpg', 'train', positives=()),
     ]
     dataset = _build_dataset(tobacco_stack, tmp_path, rows)
-    assert dataset.get_cat_ids(0) == [0, 13, 17]
+    assert dataset.get_cat_ids(0) == [0, 13, 15]
     assert dataset.get_cat_ids(1) == []
 
 
 def test_class_balanced_dataset_accepts_tobacco_dataset(
         tobacco_stack, tmp_path):
-    source = tobacco_stack.tobacco.SOURCE_LABEL_COLUMNS
+    source = tobacco_stack.tobacco.MODEL_LABEL_COLUMNS
     rows = [
         _row(source, 'positive.jpg', 'train', positives=(3,)),
-        _row(source, 'zero.jpg', 'train', positives=(13,)),
+        _row(source, 'zero.jpg', 'train', positives=()),
     ]
     dataset = _build_dataset(tobacco_stack, tmp_path, rows)
     wrapped = tobacco_stack.wrappers.ClassBalancedDataset(
@@ -329,7 +312,7 @@ def test_class_balanced_dataset_accepts_tobacco_dataset(
 
 def test_registry_builds_tobacco_and_class_balanced_wrapper(
         tobacco_stack, tmp_path):
-    source = tobacco_stack.tobacco.SOURCE_LABEL_COLUMNS
+    source = tobacco_stack.tobacco.MODEL_LABEL_COLUMNS
     manifest = tmp_path / 'manifest.csv'
     _write_manifest(
         manifest, source,
@@ -354,3 +337,92 @@ def test_dataset_is_exported_from_package_init():
         encoding='utf-8')
     assert 'from .tobacco import TobaccoMultiLabelDataset' in init_source
     assert "'TobaccoMultiLabelDataset'" in init_source
+
+
+def test_real_clean16_csv(tobacco_stack):
+    import hashlib
+    manifest = REPO_ROOT / 'tobacco_clean_16cls_721.csv'
+    assert hashlib.sha256(manifest.read_bytes()).hexdigest() == (
+        '60fee2bccbca44ed6447ec11ea6c4a8ed97434703d95aa0d905ff8f75d74db42')
+    healthy = 0
+    for split, size in [('train', 7805), ('val', 2230), ('test', 1115)]:
+        dataset = tobacco_stack.tobacco.TobaccoMultiLabelDataset(
+            ann_file=str(manifest), data_prefix='DATA_ROOT', split=split,
+            pipeline=[])
+        labels = dataset.get_gt_labels()
+        assert labels.shape == (size, 16)
+        assert (labels.sum(axis=0) > 0).all()
+        healthy += (labels.sum(axis=1) == 0).sum()
+        info = dataset.data_infos[0]
+        assert info['img_info']['filename'].startswith('images/')
+        assert Path(info['img_prefix']) == Path('DATA_ROOT') / split
+        if split == 'train':
+            wrapped = tobacco_stack.wrappers.ClassBalancedDataset(
+                dataset, oversample_thr=0.01)
+            print(f'Clean16 balanced train length: {len(wrapped)}')
+            assert len(wrapped) == sum(
+                int(np.ceil(r)) for r in wrapped._get_repeat_factors(dataset, 0.01))
+    assert healthy == 231
+
+
+def test_reordered_columns(tobacco_stack, tmp_path):
+    source = tobacco_stack.tobacco.MODEL_LABEL_COLUMNS
+    manifest = tmp_path / 'manifest.csv'
+    _write_manifest(manifest, source,
+                    [_row(source, 'images/a.jpg', 'train', (1, 15))],
+                    ['split', *reversed(source), 'file_name'])
+    ds = tobacco_stack.tobacco.TobaccoMultiLabelDataset(
+        ann_file=str(manifest), data_prefix='root', split='train', pipeline=[])
+    assert ds.get_cat_ids(0) == [1, 15]
+
+
+@pytest.mark.parametrize('duplicate', ['file_name', 'split', 'y00_c02_weather_fleck'])
+def test_duplicate_columns_rejected(tobacco_stack, tmp_path, duplicate):
+    source = tobacco_stack.tobacco.MODEL_LABEL_COLUMNS
+    manifest = tmp_path / 'manifest.csv'
+    _write_manifest(manifest, source, [_row(source, 'a.jpg', 'train')],
+                    ['file_name', 'split', *source, duplicate])
+    with pytest.raises(ValueError, match='uplicate|exactly once'):
+        tobacco_stack.tobacco.TobaccoMultiLabelDataset(
+            ann_file=str(manifest), data_prefix='root', split='train', pipeline=[])
+
+
+@pytest.mark.parametrize('extra', [
+    {'split': 'dev'}, {'file_name': ''},
+    {'positive_label_count': '1'}, {'is_healthy': '0'}])
+def test_invalid_row_metadata(tobacco_stack, tmp_path, extra):
+    source = tobacco_stack.tobacco.MODEL_LABEL_COLUMNS
+    row = _row(source, 'a.jpg', 'train')
+    row.update(extra)
+    manifest = tmp_path / 'manifest.csv'
+    _write_manifest(manifest, source, [row], list(row))
+    with pytest.raises(ValueError):
+        tobacco_stack.tobacco.TobaccoMultiLabelDataset(
+            ann_file=str(manifest), data_prefix='root', split='train', pipeline=[])
+
+
+@pytest.mark.parametrize('size', [18, 19])
+def test_legacy_manifest_rejected(tobacco_stack, tmp_path, size):
+    # Old source order, including removed diseases; no compatibility fallback.
+    names = ['weather_fleck', 'potato_virus_y', 'tobacco_mosaic_virus',
+             'cucumber_mosaic_virus', 'alternaria_leaf_spot', 'black_shank',
+             'bacterial_wilt', 'hollow_stalk', 'black_root_rot', 'wildfire',
+             'potassium_deficiency', 'magnesium_deficiency', 'powdery_mildew',
+             'root_knot_nematodes', 'anthracnose', 'frogeye_leaf_spot',
+             'angular_leaf_spot', 'sunburn', 'herbicide_phytotoxicity']
+    columns = [f'y{i:02d}_c{i+2:02d}_{n}' for i, n in enumerate(names)]
+    if size == 18:
+        columns.pop(13)
+    with pytest.raises(ValueError):
+        _build_dataset(tobacco_stack, tmp_path,
+                       [_row(columns, 'a.jpg', 'train')], source_columns=columns)
+
+
+def test_custom_class_order_rejected(tobacco_stack, tmp_path):
+    source = tobacco_stack.tobacco.MODEL_LABEL_COLUMNS
+    manifest = tmp_path / 'manifest.csv'
+    _write_manifest(manifest, source, [_row(source, 'a.jpg', 'train')])
+    with pytest.raises(ValueError, match='class'):
+        tobacco_stack.tobacco.TobaccoMultiLabelDataset(
+            data_prefix='root', ann_file=str(manifest), split='train',
+            classes=tobacco_stack.tobacco.CLASSES[::-1], pipeline=[])

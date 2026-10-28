@@ -3,12 +3,14 @@ _base_ = [
     '../_base_/default_runtime.py'
 ]
 
-# Server training normally only needs this root adjusted.
-tobacco_root = '../0data/tobacco'
-data_root = f'{tobacco_root}/data'
-manifest_file = f'{tobacco_root}/image_manifest_updated.csv'
+# Deployment must set the real server paths. CLI --cfg-options overrides the
+# concrete data.* entries; see the runbook for the complete command.
+data_root = './data/tobacco_clean16'
+manifest_file = 'tobacco_clean_16cls_721.csv'
 
-work_dir = './work_dirs/gkgnet_tobacco_448'
+work_dir = './work_dirs/gkgnet_tobacco_clean16_448'
+seed = 42
+
 dataset_type = 'TobaccoMultiLabelDataset'
 
 model = dict(
@@ -19,7 +21,7 @@ model = dict(
         k=9,
         k_label_gcn=9,
         drop_path=0.1,
-        n_classes=18,
+        n_classes=16,
         out_indices=(3, ),
         size=448,
         init_cfg=dict(
@@ -30,7 +32,7 @@ model = dict(
     neck=None,
     head=dict(
         type='LabelQueryHead',
-        num_classes=18,
+        num_classes=16,
         in_channels=640,
         softmax=False,
         loss=dict(

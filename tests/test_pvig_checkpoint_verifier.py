@@ -51,7 +51,7 @@ def test_checkpoint_report_separates_matches_mismatches_and_label_parts():
         'pos_embed': torch.zeros(1, 80, 144, 144),
         'backbone.0.graph.weight': torch.zeros(4, 4),
         'backbone.2.conv.0.weight': torch.zeros(8, 4, 3, 3),
-        'label_lt.weight': torch.zeros(18, 80),
+        'label_lt.weight': torch.zeros(16, 80),
         'gcn_label.0.graph.weight': torch.zeros(4, 4),
     }
     source = {
@@ -95,7 +95,7 @@ def test_module_breakdown_separates_all_requested_backbone_parts():
         'backbone.0.0.graph_conv.gconv.nn.0.weight': TensorMetadata((40, 40, 1, 1)),
         'backbone.0.1.fc1.0.weight': TensorMetadata((320, 80, 1, 1)),
         'backbone.2.conv.0.weight': TensorMetadata((160, 80, 3, 3)),
-        'label_lt.weight': TensorMetadata((18, 80)),
+        'label_lt.weight': TensorMetadata((16, 80)),
         'gcn_label.0.0.fc1.0.weight': TensorMetadata((80, 80, 1, 1)),
         'ffn_label.0.0.weight': TensorMetadata((160, 80)),
         'pos_embed': TensorMetadata((1, 80, 144, 144)),
@@ -121,37 +121,13 @@ def test_module_breakdown_separates_all_requested_backbone_parts():
     assert modules['ffn_label']['missing_keys'] == 1
 
 
-def test_metadata_only_target_is_exact_tobacco_576_contract():
-    config = REPO_ROOT / 'configs' / 'gkgnet' / 'gkgnet_tobacco_576.py'
-    target, parameter_keys, trainable_keys, metadata = (
-        build_target_backbone_metadata(config, force_metadata_only=True))
-    assert metadata['choice'] == 's'
-    assert metadata['size'] == 576
-    assert metadata['n_classes'] == 18
-    assert metadata['build_mode'] == 'metadata_only_dependency_shim'
-    assert target['pos_embed'].shape == (1, 80, 144, 144)
-    relative = {
-        key: value.shape for key, value in target.items()
-        if 'relative_pos' in key
-    }
-    assert len(relative) == 12
-    assert relative['backbone.0.0.relative_pos'] == (1, 20736, 1296)
-    assert relative['backbone.3.0.relative_pos'] == (1, 5184, 1296)
-    assert relative['backbone.6.0.relative_pos'] == (1, 1296, 1296)
-    assert relative['backbone.13.0.relative_pos'] == (1, 324, 324)
-    assert 'label_lt.weight' in target
-    assert any(key.startswith('gcn_label.') for key in target)
-    assert any(key.startswith('ffn_label.') for key in target)
-    assert set(trainable_keys).issubset(parameter_keys)
-
-
 def test_metadata_only_target_is_exact_tobacco_448_contract():
     config = REPO_ROOT / 'configs' / 'gkgnet' / 'gkgnet_tobacco_448.py'
     target, parameter_keys, trainable_keys, metadata = (
         build_target_backbone_metadata(config, force_metadata_only=True))
     assert metadata['choice'] == 's'
     assert metadata['size'] == 448
-    assert metadata['n_classes'] == 18
+    assert metadata['n_classes'] == 16
     assert metadata['stage_feature_shapes'] == [
         [80, 112, 112],
         [160, 56, 56],

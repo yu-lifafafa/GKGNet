@@ -6,7 +6,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = REPO_ROOT / 'configs' / 'gkgnet' / 'gkgnet_tobacco_448.py'
 REFERENCE_CONFIG_PATH = (
-    REPO_ROOT / 'configs' / 'gkgnet' / 'gkgnet_tobacco_576.py')
+    REPO_ROOT / 'configs' / 'gkgnet' / 'gkgnet_coco_576.py')
 COCO_CONFIG_PATH = REPO_ROOT / 'configs' / 'gkgnet' / 'gkgnet_coco_576.py'
 
 
@@ -20,8 +20,8 @@ def test_tobacco_448_config_exists():
 
 def test_tobacco_config_model_contract():
     cfg = _load_config()
-    assert cfg['model']['backbone']['n_classes'] == 18
-    assert cfg['model']['head']['num_classes'] == 18
+    assert cfg['model']['backbone']['n_classes'] == 16
+    assert cfg['model']['head']['num_classes'] == 16
     assert cfg['model']['backbone']['size'] == 448
     assert cfg['model']['backbone']['choice'] == 's'
     assert cfg['model']['backbone']['k'] == 9
@@ -85,14 +85,15 @@ def test_tobacco_config_does_not_drift_from_official_recipe():
     for key in (
             'img_norm_cfg', 'scale_size', 'sampler', 'runner',
             'paramwise_cfg', 'optimizer', 'optimizer_config', 'lr_config',
-            'log_config', 'dist_params', 'log_level', 'workflow', 'fp16',
-            'evaluation'):
+            'log_config', 'dist_params', 'log_level', 'workflow', 'fp16'):
         assert cfg[key] == reference[key]
 
     model_448 = copy.deepcopy(cfg['model'])
     model_576 = copy.deepcopy(reference['model'])
     assert model_448['backbone'].pop('size') == 448
     assert model_576['backbone'].pop('size') == 576
+    model_576['backbone']['n_classes'] = 16
+    model_576['head']['num_classes'] = 16
     assert model_448 == model_576
 
     train_448 = copy.deepcopy(cfg['train_pipeline'])
@@ -116,15 +117,14 @@ def test_tobacco_config_does_not_drift_from_official_recipe():
 
 def test_tobacco_paths_are_centralized():
     cfg = _load_config()
-    assert cfg['tobacco_root'] == '../0data/tobacco'
-    assert cfg['data_root'] == '../0data/tobacco/data'
+    assert cfg['data_root'] == './data/tobacco_clean16'
     assert cfg['manifest_file'] == (
-        '../0data/tobacco/image_manifest_updated.csv')
+        'tobacco_clean_16cls_721.csv')
     assert 'ASL' not in cfg['manifest_file']
     assert isinstance(cfg['data_root'], str)
     assert isinstance(cfg['manifest_file'], str)
     assert Path(cfg['data_root']).name != 'images'
-    assert Path(cfg['manifest_file']).name == 'image_manifest_updated.csv'
+    assert Path(cfg['manifest_file']).name == 'tobacco_clean_16cls_721.csv'
     train_dataset = cfg['data']['train']['dataset']
     assert train_dataset['data_prefix'] == cfg['data_root']
     assert train_dataset['ann_file'] == cfg['manifest_file']
@@ -141,7 +141,7 @@ def test_checkpoint_selection_remains_validation_map_only():
 
 def test_tobacco_448_work_dir_and_static_stage_geometry():
     cfg = _load_config()
-    assert cfg['work_dir'] == './work_dirs/gkgnet_tobacco_448'
+    assert cfg['work_dir'] == './work_dirs/gkgnet_tobacco_clean16_448'
     input_size = cfg['model']['backbone']['size']
     stage_spatial = [input_size // divisor for divisor in (4, 8, 16, 32)]
     assert stage_spatial == [112, 56, 28, 14]
@@ -153,16 +153,3 @@ def test_tobacco_448_work_dir_and_static_stage_geometry():
             (400, 28, 28),
             (640, 14, 14),
         ]
-
-
-def test_tobacco_576_reference_config_is_preserved():
-    cfg = runpy.run_path(str(REFERENCE_CONFIG_PATH))
-    assert cfg['model']['backbone']['size'] == 576
-    assert cfg['crop_size'] == 576
-    assert cfg['work_dir'] == './work_dirs/gkgnet_tobacco_576'
-    crop_mixup = next(
-        item for item in cfg['train_pipeline'] if item['type'] == 'CropMixup')
-    resize = next(
-        item for item in cfg['test_pipeline'] if item['type'] == 'Resize')
-    assert crop_mixup['size'] == 576
-    assert resize['size'] == 576

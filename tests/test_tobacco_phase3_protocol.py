@@ -49,11 +49,9 @@ CLASS_NAMES = (
     'black_shank',
     'bacterial_wilt',
     'hollow_stalk',
-    'black_root_rot',
     'wildfire',
     'potassium_deficiency',
     'magnesium_deficiency',
-    'powdery_mildew',
     'anthracnose',
     'frogeye_leaf_spot',
     'angular_leaf_spot',
@@ -113,10 +111,10 @@ def test_f1_search_and_deterministic_tie_break_rules():
         np.full((1, NUM_CLASSES), 0.1),
     ])
     calibrated = calibrate_thresholds(true, score)
-    assert calibrated['thresholds'].tolist() == pytest.approx([0.2] * 18)
+    assert calibrated['thresholds'].tolist() == pytest.approx([0.2] * 16)
     equal_distance = calibrate_thresholds(
         true, score, threshold_grid=np.array([0.499, 0.501]))
-    assert equal_distance['thresholds'].tolist() == pytest.approx([0.499] * 18)
+    assert equal_distance['thresholds'].tolist() == pytest.approx([0.499] * 16)
 
 
 def test_support_and_all_standard_aggregate_metrics_are_exact():
@@ -131,9 +129,9 @@ def test_support_and_all_standard_aggregate_metrics_are_exact():
     assert result['micro_precision'] == pytest.approx(2 / 3)
     assert result['micro_recall'] == pytest.approx(2 / 3)
     assert result['micro_f1'] == pytest.approx(2 / 3)
-    assert result['macro_precision'] == pytest.approx((0.5 + 1) / 18)
-    assert result['macro_recall'] == pytest.approx((0.5 + 1) / 18)
-    assert result['macro_f1'] == pytest.approx((0.5 + 1) / 18)
+    assert result['macro_precision'] == pytest.approx((0.5 + 1) / 16)
+    assert result['macro_recall'] == pytest.approx((0.5 + 1) / 16)
+    assert result['macro_f1'] == pytest.approx((0.5 + 1) / 16)
 
 
 def test_map_is_threshold_free_and_mean_of_ordered_ap():
@@ -145,13 +143,13 @@ def test_map_is_threshold_free_and_mean_of_ordered_ap():
     assert low['micro_f1'] != high['micro_f1']
 
 
-def test_validation_zero_support_and_non_18_inputs_fail_fast():
+def test_validation_zero_support_and_non_16_inputs_fail_fast():
     true, score = _perfect_data()
     true[:, 7] = 0
     with pytest.raises(ValueError, match='class 7'):
         calibrate_thresholds(true, score)
-    with pytest.raises(ValueError, match='18'):
-        calibrate_thresholds(true[:, :17], score[:, :17])
+    with pytest.raises(ValueError, match='16'):
+        calibrate_thresholds(true[:, :15], score[:, :15])
 
 
 def test_inference_allows_only_val_test_and_formal_448_config():
@@ -172,7 +170,7 @@ def test_inference_allows_only_val_test_and_formal_448_config():
 def test_inference_consumes_head_probabilities_without_second_sigmoid():
     scores = validate_probability_batch(
         np.full((2, NUM_CLASSES), 0.75, dtype=np.float64))
-    assert scores.shape == (2, 18)
+    assert scores.shape == (2, 16)
     source = (REPO_ROOT / 'tools/infer_tobacco.py').read_text(encoding='utf-8')
     assert 'torch.sigmoid' not in source
     head_source = (REPO_ROOT / 'mmcls/models/heads/label_query_head.py').read_text(
@@ -285,7 +283,7 @@ def test_val_and_test_prediction_csv_schemas(tmp_path):
     write_prediction_csv(
         test_path, 'test', files, true, score, CLASS_NAMES,
         thresholds=thresholds)
-    assert prediction_fieldnames(CLASS_NAMES, include_predictions=True)[-18:] == [
+    assert prediction_fieldnames(CLASS_NAMES, include_predictions=True)[-16:] == [
         f'pred_{name}' for name in CLASS_NAMES
     ]
     test = read_prediction_csv(
@@ -306,8 +304,8 @@ def test_calibration_artifact_schema_and_three_way_identity(tmp_path):
     assert artifact['calibration']['threshold_step'] == pytest.approx(0.001)
     assert artifact['calibration']['candidate_count'] == 999
     assert artifact['calibration']['tie_break'] == 'closest_to_0.5_then_lower'
-    assert len(artifact['thresholds']) == 18
-    assert len(artifact['per_class_validation']) == 18
+    assert len(artifact['thresholds']) == 16
+    assert len(artifact['per_class_validation']) == 16
     metadata['checkpoint']['sha256'] = '0' * 64
     with pytest.raises(ValueError, match='checkpoint'):
         build_calibration_artifact(true, score, CLASS_NAMES, best, metadata)
@@ -357,7 +355,7 @@ def test_final_test_artifact_schemas_and_fixed_half_reference(tmp_path):
         'class_id', 'class_name', 'support', 'AP', 'threshold', 'precision',
         'recall', 'F1', 'TP', 'FP', 'FN'
     ]
-    assert [int(row['class_id']) for row in rows] == list(range(18))
+    assert [int(row['class_id']) for row in rows] == list(range(16))
     assert [row['class_name'] for row in rows] == list(CLASS_NAMES)
 
 
@@ -368,3 +366,33 @@ def test_test_evaluator_has_no_calibration_call():
     assert 'argmax' not in source
     assert 'softmax' not in source
     assert 'gkgnet_tobacco_576.py' not in source
+
+
+@pytest.mark.parametrize('legacy_size', [18, 19])
+def test_legacy_probabilities_and_checkpoints_rejected(tmp_path, legacy_size):
+    with pytest.raises(ValueError, match='16'):
+        validate_probability_batch(np.zeros((2, legacy_size)))
+    target = torch.nn.Linear(3, 16)
+    legacy = torch.nn.Linear(3, legacy_size)
+    checkpoint = tmp_path / 'legacy.pth'
+    torch.save({'state_dict': legacy.state_dict()}, checkpoint)
+    with pytest.raises(RuntimeError, match='size mismatch'):
+        strict_restore_trained_checkpoint(target, checkpoint)
+
+
+def test_best_checkpoint_builder_requires_canonical_class_order(tmp_path):
+    checkpoint = tmp_path / 'model.pth'
+    checkpoint.write_bytes(b'identity')
+    with pytest.raises(ValueError, match='class_names'):
+        build_best_checkpoint_info(checkpoint, 1, 0.5, CLASS_NAMES[::-1])
+
+
+@pytest.mark.parametrize('metadata', [
+    {'CLASSES': list(CLASS_NAMES[::-1])},
+    {'task_protocol': 'tobacco_18cls_exclude_source13'}])
+def test_checkpoint_metadata_must_match_clean16(tmp_path, metadata):
+    model = torch.nn.Linear(3, 16)
+    checkpoint = tmp_path / 'wrong_metadata.pth'
+    torch.save({'state_dict': model.state_dict(), 'meta': metadata}, checkpoint)
+    with pytest.raises(ValueError, match='protocol|class'):
+        strict_restore_trained_checkpoint(model, checkpoint)

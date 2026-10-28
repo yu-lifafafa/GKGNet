@@ -12,7 +12,8 @@ try:
         ARCHITECTURE, INPUT_SIZE, SCHEMA_VERSION, checkpoint_identity,
         THRESHOLD_CANDIDATE_COUNT, THRESHOLD_MAX, THRESHOLD_MIN,
         THRESHOLD_STEP, THRESHOLD_TIE_BREAK, read_prediction_csv,
-        validate_best_checkpoint_info, validate_prediction_metadata)
+        validate_best_checkpoint_info, validate_prediction_metadata,
+        _validate_class_names)
     from tools.tobacco_metrics import (
         NUM_CLASSES, TASK_PROTOCOL, evaluate_scores, test_per_class_rows,
         validate_thresholds)
@@ -21,7 +22,8 @@ except ModuleNotFoundError:  # Direct execution as ``python tools/...``.
         ARCHITECTURE, INPUT_SIZE, SCHEMA_VERSION, checkpoint_identity,
         THRESHOLD_CANDIDATE_COUNT, THRESHOLD_MAX, THRESHOLD_MIN,
         THRESHOLD_STEP, THRESHOLD_TIE_BREAK, read_prediction_csv,
-        validate_best_checkpoint_info, validate_prediction_metadata)
+        validate_best_checkpoint_info, validate_prediction_metadata,
+        _validate_class_names)
     from tobacco_metrics import (
         NUM_CLASSES, TASK_PROTOCOL, evaluate_scores, test_per_class_rows,
         validate_thresholds)
@@ -41,7 +43,7 @@ def validate_threshold_artifact(artifact,
                                 checkpoint_path=None,
                                 checkpoint_type=None):
     """Validate frozen threshold protocol and optional checkpoint file."""
-    names = list(expected_class_names)
+    names = list(_validate_class_names(expected_class_names))
     required = {
         'schema_version': SCHEMA_VERSION,
         'task_protocol': TASK_PROTOCOL,
@@ -73,7 +75,7 @@ def validate_threshold_artifact(artifact,
             raise ValueError(f'Threshold calibration {key} mismatch.')
     per_class = artifact.get('per_class_validation')
     if not isinstance(per_class, list) or len(per_class) != NUM_CLASSES:
-        raise ValueError('Threshold per_class_validation must have 18 rows.')
+        raise ValueError('Threshold per_class_validation must have 16 rows.')
     for class_id, (row, class_name) in enumerate(zip(per_class, names)):
         if (row.get('class_id') != class_id
                 or row.get('class_name') != class_name):
@@ -194,7 +196,10 @@ def parse_args(args=None):
 
 def main():
     args = parse_args()
-    from mmcls.datasets.tobacco import CLASSES
+    try:
+        from tools.tobacco_protocol import CLASSES
+    except ModuleNotFoundError:
+        from tobacco_protocol import CLASSES
 
     result = evaluate_prediction_artifacts(
         test_predictions=args.test_predictions,

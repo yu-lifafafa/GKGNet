@@ -28,7 +28,7 @@ def test_gpu_smoke_is_real_dataset_single_batch_contract():
     assert 'batch_size = 1' in source
     assert '(1, 3, 448, 448)' in source
     assert '(1, 3, 576, 576)' not in source
-    assert '(1, 18)' in source
+    assert '(1, 16)' in source
     assert 'torch.rand' not in source
     assert '--pretrained-checkpoint' in source
     assert 'model.init_weights()' in source

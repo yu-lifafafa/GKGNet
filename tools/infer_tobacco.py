@@ -12,12 +12,14 @@ try:
     from tools.tobacco_artifacts import (
         CHECKPOINT_TYPES, FORMAL_CONFIG, build_prediction_metadata,
         checkpoint_identity, write_prediction_csv)
-    from tools.tobacco_metrics import NUM_CLASSES, validate_probability_inputs
+    from tools.tobacco_metrics import (
+        CLASSES, NUM_CLASSES, TASK_PROTOCOL, validate_probability_inputs)
 except ModuleNotFoundError:  # Direct execution as ``python tools/...``.
     from tobacco_artifacts import (
         CHECKPOINT_TYPES, FORMAL_CONFIG, build_prediction_metadata,
         checkpoint_identity, write_prediction_csv)
-    from tobacco_metrics import NUM_CLASSES, validate_probability_inputs
+    from tobacco_metrics import (
+        CLASSES, NUM_CLASSES, TASK_PROTOCOL, validate_probability_inputs)
 
 
 def validate_inference_request(config_path, split, thresholds_path=None):
@@ -104,6 +106,14 @@ def strict_restore_trained_checkpoint(model,
     if not path.is_file():
         raise FileNotFoundError(f'Trained checkpoint does not exist: {path}')
     checkpoint = torch.load(str(path), map_location='cpu')
+    metadata = checkpoint.get('meta', {}) if isinstance(checkpoint, dict) else {}
+    if isinstance(metadata, dict):
+        for key in ('CLASSES', 'class_names'):
+            if key in metadata and tuple(metadata[key]) != CLASSES:
+                raise ValueError('Checkpoint class order differs from Clean16.')
+        if ('task_protocol' in metadata
+                and metadata['task_protocol'] != TASK_PROTOCOL):
+            raise ValueError('Checkpoint task protocol differs from Clean16.')
     location, state = _extract_trained_state_dict(checkpoint, checkpoint_type)
     model.load_state_dict(state, strict=True)
     return {
@@ -147,7 +157,6 @@ def main():
     from mmcv import Config
     from mmcv.parallel import scatter
     from mmcls.datasets import build_dataloader, build_dataset
-    from mmcls.datasets.tobacco import CLASSES
     from mmcls.models import build_classifier
     try:
         from mmcv.runner import wrap_fp16_model

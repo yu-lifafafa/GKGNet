@@ -429,7 +429,7 @@ def _load_gkgnet_with_shims(repo_root):
 def _config_backbone(config_path):
     config = runpy.run_path(str(config_path))
     backbone = dict(config['model']['backbone'])
-    required = {'choice': 's', 'n_classes': 18}
+    required = {'choice': 's', 'n_classes': 16}
     for key, expected in required.items():
         if backbone.get(key) != expected:
             raise ValueError(

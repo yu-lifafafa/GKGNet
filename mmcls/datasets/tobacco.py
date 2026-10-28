@@ -5,94 +5,19 @@ from decimal import Decimal, InvalidOperation
 
 import numpy as np
 
+from tools.tobacco_protocol import CLASSES, MODEL_LABEL_COLUMNS
+
 from .builder import DATASETS
 from .multi_label import MultiLabelDataset
-
-
-SOURCE_LABEL_COLUMNS = [
-    'y00_c02_weather_fleck',
-    'y01_c03_potato_virus_y',
-    'y02_c04_tobacco_mosaic_virus',
-    'y03_c05_cucumber_mosaic_virus',
-    'y04_c06_alternaria_leaf_spot',
-    'y05_c07_black_shank',
-    'y06_c08_bacterial_wilt',
-    'y07_c09_hollow_stalk',
-    'y08_c10_black_root_rot',
-    'y09_c11_wildfire',
-    'y10_c12_potassium_deficiency',
-    'y11_c13_magnesium_deficiency',
-    'y12_c14_powdery_mildew',
-    'y13_c15_root_knot_nematodes',
-    'y14_c16_anthracnose',
-    'y15_c17_frogeye_leaf_spot',
-    'y16_c18_angular_leaf_spot',
-    'y17_c19_sunburn',
-    'y18_c20_herbicide_phytotoxicity',
-]
-
-EXCLUDED_SOURCE_LABEL = 'y13_c15_root_knot_nematodes'
-
-MODEL_LABEL_COLUMNS = [
-    'y00_c02_weather_fleck',
-    'y01_c03_potato_virus_y',
-    'y02_c04_tobacco_mosaic_virus',
-    'y03_c05_cucumber_mosaic_virus',
-    'y04_c06_alternaria_leaf_spot',
-    'y05_c07_black_shank',
-    'y06_c08_bacterial_wilt',
-    'y07_c09_hollow_stalk',
-    'y08_c10_black_root_rot',
-    'y09_c11_wildfire',
-    'y10_c12_potassium_deficiency',
-    'y11_c13_magnesium_deficiency',
-    'y12_c14_powdery_mildew',
-    'y14_c16_anthracnose',
-    'y15_c17_frogeye_leaf_spot',
-    'y16_c18_angular_leaf_spot',
-    'y17_c19_sunburn',
-    'y18_c20_herbicide_phytotoxicity',
-]
-
-CLASSES = (
-    'weather_fleck',
-    'potato_virus_y',
-    'tobacco_mosaic_virus',
-    'cucumber_mosaic_virus',
-    'alternaria_leaf_spot',
-    'black_shank',
-    'bacterial_wilt',
-    'hollow_stalk',
-    'black_root_rot',
-    'wildfire',
-    'potassium_deficiency',
-    'magnesium_deficiency',
-    'powdery_mildew',
-    'anthracnose',
-    'frogeye_leaf_spot',
-    'angular_leaf_spot',
-    'sunburn',
-    'herbicide_phytotoxicity',
-)
-
-_EXCLUDED_SOURCE_INDEX = SOURCE_LABEL_COLUMNS.index(EXCLUDED_SOURCE_LABEL)
-
-assert len(SOURCE_LABEL_COLUMNS) == 19
-assert len(MODEL_LABEL_COLUMNS) == 18
-assert len(CLASSES) == 18
-assert MODEL_LABEL_COLUMNS == (
-    SOURCE_LABEL_COLUMNS[:_EXCLUDED_SOURCE_INDEX]
-    + SOURCE_LABEL_COLUMNS[_EXCLUDED_SOURCE_INDEX + 1:])
 
 
 @DATASETS.register_module()
 class TobaccoMultiLabelDataset(MultiLabelDataset):
     """Tobacco multi-label dataset backed directly by an image manifest CSV.
 
-    ``data_prefix`` is the image root. Images are resolved as
-    ``data_prefix / split / file_name``. The manifest always retains the 19
-    source label columns; this dataset removes only the fixed root-knot source
-    dimension and emits an 18-dimensional multi-hot label.
+    ``data_prefix / split / file_name`` resolves each image. ``file_name``
+    already includes images/. Labels follow the canonical 16 named columns;
+    healthy samples have no positive labels.
     """
 
     CLASSES = CLASSES
@@ -102,6 +27,11 @@ class TobaccoMultiLabelDataset(MultiLabelDataset):
                  split_column='split',
                  filename_column='file_name',
                  **kwargs):
+        if split not in ('train', 'val', 'test'):
+            raise ValueError(f'Invalid split: {split!r}.')
+        classes = kwargs.get('classes')
+        if classes is not None and tuple(classes) != CLASSES:
+            raise ValueError('classes must match the canonical Clean16 order.')
         self.split = split
         self.split_column = split_column
         self.filename_column = filename_column
@@ -124,25 +54,18 @@ class TobaccoMultiLabelDataset(MultiLabelDataset):
         if fieldnames is None:
             raise ValueError(f'Manifest is empty or has no header: {self.ann_file}')
 
-        required_columns = [
-            self.filename_column, self.split_column, *SOURCE_LABEL_COLUMNS
-        ]
-        missing_columns = [
-            column for column in required_columns if column not in fieldnames
-        ]
-        if missing_columns:
+        duplicates = sorted({c for c in fieldnames if fieldnames.count(c) > 1})
+        if duplicates:
+            raise ValueError('Duplicate CSV columns: ' + ', '.join(duplicates))
+        required = [self.filename_column, self.split_column, *MODEL_LABEL_COLUMNS]
+        missing = [c for c in required if c not in fieldnames]
+        if missing:
             raise ValueError(
-                'Manifest is missing required column(s): '
-                + ', '.join(missing_columns))
-
-        duplicate_source_columns = [
-            column for column in SOURCE_LABEL_COLUMNS
-            if fieldnames.count(column) != 1
-        ]
-        if duplicate_source_columns:
-            raise ValueError(
-                'Manifest source label column(s) must appear exactly once: '
-                + ', '.join(duplicate_source_columns))
+                'Manifest is missing required columns: ' + ', '.join(missing))
+        unexpected = [c for c in fieldnames
+                      if c.startswith('y') and c not in MODEL_LABEL_COLUMNS]
+        if unexpected:
+            raise ValueError('Unexpected label columns: ' + ', '.join(unexpected))
 
     def load_annotations(self):
         data_infos = []
@@ -154,8 +77,12 @@ class TobaccoMultiLabelDataset(MultiLabelDataset):
             self._validate_header(reader.fieldnames)
 
             for line_number, row in enumerate(reader, start=2):
-                if (row[self.split_column] or '').strip() != self.split:
-                    continue
+                if None in row or any(value is None for value in row.values()):
+                    raise ValueError(f'Malformed CSV row at line {line_number}.')
+                row_split = row[self.split_column].strip()
+                if row_split not in ('train', 'val', 'test'):
+                    raise ValueError(
+                        f'Invalid split at CSV line {line_number}: {row_split!r}.')
 
                 filename = (row[self.filename_column] or '').strip()
                 if not filename:
@@ -163,21 +90,26 @@ class TobaccoMultiLabelDataset(MultiLabelDataset):
                         f'Empty filename at CSV line {line_number}, column '
                         f'"{self.filename_column}".')
 
-                source_label = [
+                model_label = np.asarray([
                     self._parse_binary_label(row[column], column, line_number)
-                    for column in SOURCE_LABEL_COLUMNS
-                ]
-                model_label = np.asarray(
-                    source_label[:_EXCLUDED_SOURCE_INDEX]
-                    + source_label[_EXCLUDED_SOURCE_INDEX + 1:],
-                    dtype=np.int8)
-                if model_label.shape != (18, ):
-                    raise ValueError(
-                        f'Expected an 18-dimensional model label at CSV line '
-                        f'{line_number}, got shape {model_label.shape}.')
-                if not np.isin(model_label, (0, 1)).all():
-                    raise ValueError(
-                        f'Model label at CSV line {line_number} is not binary.')
+                    for column in MODEL_LABEL_COLUMNS], dtype=np.int8)
+                positive_count = int(model_label.sum())
+                if 'positive_label_count' in row:
+                    try:
+                        count = Decimal(row['positive_label_count'].strip())
+                    except InvalidOperation:
+                        count = None
+                    if count != positive_count:
+                        raise ValueError(
+                            'positive_label_count mismatch at CSV line '
+                            f'{line_number}.')
+                if 'is_healthy' in row:
+                    healthy = self._parse_binary_label(
+                        row['is_healthy'], 'is_healthy', line_number)
+                    if healthy != int(positive_count == 0):
+                        raise ValueError(f'is_healthy mismatch at CSV line {line_number}.')
+                if row_split != self.split:
+                    continue
 
                 data_infos.append(
                     dict(

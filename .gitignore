@@ -4,3 +4,6 @@ test_tmp*/
 __pycache__/
 *.py[cod]
 
+
+# Local manifest used for Clean16 protocol auditing.
+tobacco_clean_16cls_721.csv

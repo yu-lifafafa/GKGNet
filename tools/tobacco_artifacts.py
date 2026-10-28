@@ -8,11 +8,11 @@ import numpy as np
 
 try:
     from tools.tobacco_metrics import (
-        NUM_CLASSES, TASK_PROTOCOL, checkpoint_identity,
+        CLASSES, NUM_CLASSES, TASK_PROTOCOL, checkpoint_identity,
         validate_probability_inputs, validate_thresholds)
 except ModuleNotFoundError:  # Direct execution as ``python tools/...``.
     from tobacco_metrics import (
-        NUM_CLASSES, TASK_PROTOCOL, checkpoint_identity,
+        CLASSES, NUM_CLASSES, TASK_PROTOCOL, checkpoint_identity,
         validate_probability_inputs, validate_thresholds)
 
 
@@ -30,9 +30,8 @@ THRESHOLD_TIE_BREAK = 'closest_to_0.5_then_lower'
 
 def _validate_class_names(class_names):
     names = tuple(class_names)
-    if len(names) != NUM_CLASSES or len(set(names)) != NUM_CLASSES:
-        raise ValueError(
-            'class_names must contain exactly 18 unique ordered names.')
+    if names != CLASSES:
+        raise ValueError('class_names must match the canonical Clean16 order.')
     return names
 
 

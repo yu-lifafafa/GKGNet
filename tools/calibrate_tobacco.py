@@ -155,7 +155,10 @@ def parse_args(args=None):
 
 def main():
     args = parse_args()
-    from mmcls.datasets.tobacco import CLASSES
+    try:
+        from tools.tobacco_protocol import CLASSES
+    except ModuleNotFoundError:
+        from tobacco_protocol import CLASSES
 
     predictions = read_prediction_csv(
         args.validation_predictions, CLASSES, expected_split='val')

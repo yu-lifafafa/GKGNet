@@ -24,11 +24,9 @@ CLASS_NAMES = (
     'black_shank',
     'bacterial_wilt',
     'hollow_stalk',
-    'black_root_rot',
     'wildfire',
     'potassium_deficiency',
     'magnesium_deficiency',
-    'powdery_mildew',
     'anthracnose',
     'frogeye_leaf_spot',
     'angular_leaf_spot',
@@ -75,7 +73,7 @@ def test_perfect_multilabel_prediction_has_unit_metrics():
     assert result['mAP'] == pytest.approx(1.0)
     assert result['Macro-F1'] == pytest.approx(1.0)
     assert result['Micro-F1'] == pytest.approx(1.0)
-    assert result['per_class_f1'].tolist() == pytest.approx([1.0] * 18)
+    assert result['per_class_f1'].tolist() == pytest.approx([1.0] * 16)
 
 
 def test_same_sample_can_have_two_correct_positive_labels():
@@ -155,7 +153,7 @@ def test_threshold_tie_breaks_nearest_half_then_lower():
     y_true, y_score = _perfect_data()
     result = calibrate_thresholds(
         y_true, y_score, threshold_grid=np.array([0.49, 0.51]))
-    assert result['thresholds'].tolist() == pytest.approx([0.49] * 18)
+    assert result['thresholds'].tolist() == pytest.approx([0.49] * 16)
 
 
 @pytest.mark.parametrize(
@@ -163,6 +161,9 @@ def test_threshold_tie_breaks_nearest_half_then_lower():
     [
         ('class_names', list(reversed(CLASS_NAMES)), 'class_names'),
         ('thresholds', [0.5] * 17, 'threshold'),
+        ('thresholds', [0.5] * 18, 'threshold'),
+        ('thresholds', [0.5] * 19, 'threshold'),
+        ('task_protocol', 'tobacco_18cls_exclude_source13', 'task_protocol'),
         ('task_protocol', 'wrong_protocol', 'task_protocol'),
     ])
 def test_invalid_threshold_artifact_is_rejected(
@@ -206,8 +207,8 @@ def test_shape_mismatch_and_wrong_class_count_fail_fast():
     y_true, y_score = _perfect_data()
     with pytest.raises(ValueError, match='same shape'):
         evaluate_scores(y_true[:1], y_score, np.full(NUM_CLASSES, 0.5))
-    with pytest.raises(ValueError, match='18'):
-        evaluate_scores(y_true[:, :17], y_score[:, :17], np.full(17, 0.5))
+    with pytest.raises(ValueError, match='16'):
+        evaluate_scores(y_true[:, :15], y_score[:, :15], np.full(16, 0.5))
 
 
 def test_out_of_range_probability_fails_fast():
@@ -240,7 +241,7 @@ def test_calibration_artifact_has_fixed_schema(tmp_path):
     assert artifact['calibration']['validation_macro_f1'] == pytest.approx(1.0)
     assert artifact['calibration']['validation_micro_f1'] == pytest.approx(1.0)
     assert artifact['calibration']['num_samples'] == 2
-    assert artifact['num_classes'] == 18
-    assert len(artifact['per_class_validation']) == 18
+    assert artifact['num_classes'] == 16
+    assert len(artifact['per_class_validation']) == 16
     assert artifact['checkpoint']['sha256'] == checkpoint_identity(
         checkpoint)['sha256']
